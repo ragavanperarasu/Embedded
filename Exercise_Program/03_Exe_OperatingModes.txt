@@ -1,0 +1,263 @@
+LAB EXERCISE – Demonstration of Operating Modes, System Calls, and Interrupts using LPC2148
+Aim
+
+To write and execute an ARM7 LPC2148 program that demonstrates operating modes, system calls, and interrupts through LED, buzzer, and keypad control.
+
+
+=============================
+Apparatus Required
+
+LPC2148 Development Board
+
+16×2 LCD Display
+
+4×4 Matrix Keypad
+
+LEDs for simulating hardware outputs
+
+Buzzer for alert
+
+Flash Magic Programmer
+
+
+========================
+
+Procedure 
+
+1) Configure GPIO pins:
+
+  Set P0.8 and P0.11 as LCD control pins (RS, EN).
+  
+  Set P1.16–P1.23 as LCD data pins.
+  
+  Set P1.24–P1.31 as LED outputs.
+  
+  Set P0.15 as buzzer output.
+  
+  Configure keypad rows (P0.16–P0.19) as outputs and columns (P0.20–P0.23) as inputs.
+  
+2) Initialize LCD by sending the command sequence {0x38, 0x01, 0x06, 0x0C, 0x80}.
+
+3) Display Low-Level Mode:
+
+  Print "User: Low Level" on the first LCD line.
+  
+  Turn OFF all LEDs, buzzer off.
+
+4) Wait for Keypad Input:
+
+  Use get_key() function to scan rows/columns for pressed key.
+
+5) Handle User Mode Actions:
+
+  If 'C' pressed → Turn ON L1, buzzer short beep.
+  
+  If '0' pressed → Turn OFF LEDs, buzzer short beep.
+
+6) Simulate System Call:
+
+  If '=' pressed → Change display to "User: High Level", buzzer triple beep.
+  
+  In this mode, allow both L1 and L2 to be controlled.
+
+7) Return to Low-Level Mode:
+
+  Press '=' again in high-level mode → Display "User: Low Level", buzzer triple beep, go back to step 4.
+
+==================================
+Program 
+
+
+
+#include <nxp/iolpc2148.h>
+
+#define rs IO0PIN_bit.P0_8
+#define en IO0PIN_bit.P0_11
+
+// LCD init commands
+unsigned char commandarray[5] = {0x38, 0x01, 0x06, 0x0c, 0x80};
+
+void delay(unsigned int x) {
+    unsigned int i;
+    for (i = 0; i < x; i++);
+}
+
+void lcd_init() {
+    int i;
+    for (i = 0; i < 5; i++) {
+        IO1PIN = commandarray[i] << 16;
+        rs = 0;
+        en = 1;
+        delay(4095);
+        en = 0;
+    }
+}
+
+void buz() {
+    IO0PIN_bit.P0_15=1; // buzzer on
+    delay(50000);
+    IO0PIN_bit.P0_15=0; // buzzer off
+}
+
+void lcd_command(unsigned char cmd) {
+    IO1PIN = cmd << 16;
+    rs = 0;
+    en = 1;
+    delay(4095);
+    en = 0;
+}
+
+void lcd_print(char data[]) {
+    int i;
+    for (i = 0; data[i] != '\0'; i++) {
+        IO1PIN = data[i] << 16;
+        rs = 1;
+        en = 1;
+        delay(4095);
+        en = 0;
+    }
+}
+
+// Corrected keypad scan function
+char get_key() {
+    int row_vals[] = {0x000E0000, 0x000D0000, 0x000B0000, 0x00070000};
+    char key_map[4][4] = {
+        {'1', '2', '3', '+'},
+        {'4', '5', '6', '-'},
+        {'7', '8', '9', '*'},
+        {'C', '0', '=', '/'}
+    };
+
+    int row, col;
+
+    for (row = 0; row < 4; row++) {
+        // Clear all rows (P0.16-P0.19)
+        IO0SET = 0x000F0000;    // set rows high
+        IO0CLR = (~row_vals[row]) & 0x000F0000; // drive current row low
+
+        delay(1000);
+
+        int col_val = IO0PIN & 0x00F00000; // read cols P0.20-P0.23
+
+        if (col_val != 0x00F00000) { // some col is low (pressed)
+            for (col = 0; col < 4; col++) {
+                if ((col_val & (1 << (20 + col))) == 0) {
+                    // wait for release
+                    while ((IO0PIN & 0x00F00000) != 0x00F00000);
+                    return key_map[row][col];
+                }
+            }
+        }
+    }
+    return 0;
+}
+
+int main() {
+      PINSEL0_bit.P0_15=0;
+    IO0DIR_bit.P0_15=1;
+    char key = 0;
+
+    // Configure pins:
+    PINSEL0 = 0x00000000; // GPIO function for P0 pins
+    PINSEL2 = 0x00000000; // GPIO function for P1 pins
+
+    // Keypad rows (P0.16-P0.19) output
+    IO0DIR |= 0x000F0000;
+
+    // Keypad columns (P0.20-P0.23) input
+    IO0DIR &= ~0x00F00000;
+
+    // LCD control pins output
+    IO0DIR_bit.P0_8 = 1;  // rs
+    IO0DIR_bit.P0_11 = 1; // en
+
+    // LCD data pins output (P1.16-P1.23)
+    IO1DIR |= 0x00FF0000;
+
+    // LEDs output (P1.24-P1.31)
+    IO1DIR |= 0xFF000000;
+
+    lcd_init();
+    lcd_command(0x80);
+    lcd_print("User: Low Level ");
+    lcd_command(0xC0);
+    lcd_print("...Starting....");
+    IO0PIN_bit.P0_15=1; // buzzer on
+    IO1SET = 0xDB000000; // leds on
+    delay(550000);
+    IO1CLR = 0xFF000000; // leds off
+    IO0PIN_bit.P0_15=0; // buzzer off
+    lcd_command(0xC0);
+    lcd_print("L1: OFF L2: OFF");
+
+    while (1) {
+        key = get_key();  // scan keypad
+        if (key == 'C') {
+            lcd_command(0xC0);
+            lcd_print("L1: ON L2: OFF ");
+            IO1SET = 0x0F000000;  // LEDs ON
+            buz();
+       
+        }
+       
+        if (key == '0') {
+            lcd_command(0xC0);
+            lcd_print("L1: OFF L2: OFF");
+
+            IO1CLR = 0xFF000000;  // LEDs OFF
+            
+            buz();
+        } 
+        
+        if (key == '=') {
+             lcd_command(0x80);
+             lcd_print("User: High Level");
+             buz();
+              delay(50000);
+             buz();
+             delay(50000);
+                    buz();
+             while(1){
+                  key = get_key();  // scan keypad
+                  if (key == 'C') {
+                      lcd_command(0xC0);
+                      lcd_print("L1: ON L2: ON ");
+                      IO1SET = 0xFF000000;  // LEDs ON
+
+                      buz();
+                  }
+                 
+                  if (key == '0') {
+                      lcd_command(0xC0);
+                      lcd_print("L1: OFF L2: OFF");
+
+                      IO1CLR = 0xFF000000;  
+                      
+                      buz();
+            
+                  } 
+                  if (key == '=') {
+                    lcd_command(0x80);
+                    lcd_print("User: Low Level ");
+                    
+                    buz();
+                    delay(50000);
+                    buz();
+                    delay(50000);
+                    buz();
+                    break;
+                  } 
+             
+             }
+        }
+       
+    }
+    return 0;
+}
+
+
+========================
+
+Result
+
+The program successfully demonstrated ARM7 operating modes and system call simulation using the LPC2148 microcontroller, with keypad input controlling LED outputs according to privilege level, and buzzer/LCD indicating mode changes.
