@@ -9,6 +9,8 @@ String api_url = "https://bharatrails.vercel.app/proins";
 #include <SPI.h>
 #include <ArduinoJson.h>
 #include <Ticker.h>
+#include <SoftwareSerial.h>
+
 TinyGsm modem(SerialAT);
 StaticJsonDocument<200> payloadObj;
 #define UART_BAUD   115200
@@ -22,6 +24,10 @@ StaticJsonDocument<200> payloadObj;
 #define PANEL_SENSOR_PIN 4
 #define MAINS_VOLTAGE_SENSOR_PIN 13
 #define LED_PIN 14
+int GPSRXPin = 33;
+int GPSTXPin = 32;
+SoftwareSerial gpsSerial(GPSRXPin,GPSTXPin);
+
 void modemPowerOn();
 void checkMaintenanceMode();
 void sendHttpData();
@@ -30,7 +36,7 @@ const String TRAIN_NUMBER = "12674";
 const String COACH_NUMBER = "B4-203813";
 bool isMainsVoltagePresent = true;
 unsigned long lastHttpSendTime = 0;   // global variable
-const unsigned long sendInterval = 60000; // 5 minutes in ms
+const unsigned long sendInterval = 10000; // 5 minutes in ms
 void setup() {
   SerialMon.begin(115200);
   pinMode(MAINTENANCE_SWITCH_PIN, INPUT_PULLUP);
@@ -38,7 +44,7 @@ void setup() {
   digitalWrite(LED_PIN, LOW);
   pinMode(RELAY_PIN,OUTPUT);
   pinMode(MAINS_VOLTAGE_SENSOR_PIN,INPUT);
-  analogWrite(RELAY_PIN,0);
+  analogWrite(RELAY_PIN,0);       
   delay(5000);
   modemPowerOn();
   SerialAT.begin(UART_BAUD, SERIAL_8N1, PIN_RX, PIN_TX);
@@ -74,6 +80,22 @@ void loop() {
   signalQuality = modem.getSignalQuality();
   Serial.print("Signal quality main loop first check: ");
   Serial.println(signalQuality);
+
+  while (gpsSerial.available()) {
+    char c = gpsSerial.read();
+    if (c == '\n') {
+      // we finished one NMEA sentence
+      if (nmea.startsWith("$GPRMC")) {
+        parseGPRMC(nmea);
+        break;
+      }
+      nmea = "";
+    } else if (c != '\r') {
+      nmea += c;
+    }
+  }
+}
+
   checkMaintenanceMode();
    unsigned long currentMillis = millis();
   if (currentMillis - lastHttpSendTime >= sendInterval) {
@@ -163,7 +185,7 @@ if (sensorValue >= 2970)
      Pbattery = 19;
   else if (sensorValue >= 2330 && sensorValue < 2400) 
    Pbattery = 18;
-  if (sensorValue2 >= 2970 ) 
+  if (sensorValue2 >= 2970) 
      Bbattery = 24;
   else if (sensorValue2 >= 2850 && sensorValue2 < 2970) 
      Bbattery = 23;
@@ -186,11 +208,42 @@ if (sensorValue >= 2970)
       payloadObj["backbat"] = Bbattery;
       payloadObj["pripow"] = isMainsVoltagePresent;
       payloadObj["maintainance"] = currentState;
-      payloadObj["lat"] = "8.99";
-      payloadObj["lng"] = "28.88";
+      payloadObj["lat"] = "currentLat";
+      payloadObj["lng"] = "currentLon";
       payloadObj["sig"] = modem.getSignalQuality();
       if(Pbattery<20)
           analogWrite(RELAY_PIN, 200);
       else
         analogWrite(RELAY_PIN,0);
+
+}
+
+void parseGPRMC(String s) {
+  String f[12];
+  int idx = 0;
+  for (unsigned int i = 0; i < s.length(); i++) {
+    char ch = s.charAt(i);
+    if (ch == ',') {
+      idx++;
+      if (idx >= 12) break;
+    } else {
+      f[idx] += ch;
+    }
+  }
+
+  if (f[2] != "A") return; // only update if fix is active
+  if (f[3].length() < 4 || f[5].length() < 5) return;
+
+  currentLat = nmeaToDecimalDegrees(f[3], true);
+  if (f[4] == "S") currentLat = -currentLat;
+
+  currentLon = nmeaToDecimalDegrees(f[5], false);
+  if (f[6] == "W") currentLon = -currentLon;
+}
+
+double nmeaToDecimalDegrees(String field, bool isLatitude) {
+  int degDigits = isLatitude ? 2 : 3;
+  double degrees = field.substring(0, degDigits).toDouble();
+  double minutes = field.substring(degDigits).toDouble();
+  return degrees + (minutes / 60.0);
 }
