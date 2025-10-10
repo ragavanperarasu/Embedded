@@ -28,6 +28,7 @@ int GPSRXPin = 33;
 int GPSTXPin = 32;
 SoftwareSerial gpsSerial(GPSRXPin,GPSTXPin);
 
+
 void modemPowerOn();
 void checkMaintenanceMode();
 void sendHttpData();
@@ -37,8 +38,13 @@ const String COACH_NUMBER = "B4-203813";
 bool isMainsVoltagePresent = true;
 unsigned long lastHttpSendTime = 0;   // global variable
 const unsigned long sendInterval = 10000; // 5 minutes in ms
+
+String nmea = "";
+double currentLat = 0.0;
+double currentLon = 0.0;
+
 void setup() {
-  SerialMon.begin(115200);
+  SerialMon.begin(9600);
   pinMode(MAINTENANCE_SWITCH_PIN, INPUT_PULLUP);
   pinMode(LED_PIN, OUTPUT);
   digitalWrite(LED_PIN, LOW);
@@ -94,12 +100,12 @@ void loop() {
       nmea += c;
     }
   }
-}
+
 
   checkMaintenanceMode();
    unsigned long currentMillis = millis();
   if (currentMillis - lastHttpSendTime >= sendInterval) {
-    sendHttpData();
+    //sendHttpData();
     lastHttpSendTime = currentMillis;
   }
   delay(5000);
@@ -171,34 +177,39 @@ void checkMaintenanceMode() {
   int Pbattery = 0;
  int  sensorValue2 =analogRead(BACKUP_BATTERY_SENSOR_PIN);
   int Bbattery = 0;
-if (sensorValue >= 2970) 
+if (sensorValue >= 2900) 
      Pbattery = 24;
-  else if (sensorValue >= 2850 && sensorValue < 2970) 
+  else if (sensorValue >= 2700 && sensorValue < 2800) 
      Pbattery = 23;
-  else if (sensorValue >= 2750 && sensorValue < 2850) 
+  else if (sensorValue >= 2600 && sensorValue < 2700) 
      Pbattery = 22;
-  else if (sensorValue >= 2695 && sensorValue < 2750) 
+  else if (sensorValue >= 2510 && sensorValue < 2600) 
     Pbattery = 21;
-  else if (sensorValue >= 2570 && sensorValue < 2695) 
+  else if (sensorValue >= 2540 && sensorValue < 2510) 
      Pbattery = 20;
-  else if (sensorValue >= 2400 && sensorValue < 2570) 
+  else if (sensorValue >= 2300 && sensorValue < 2400) 
      Pbattery = 19;
-  else if (sensorValue >= 2330 && sensorValue < 2400) 
+  else if (sensorValue >= 2200 && sensorValue < 2300) 
    Pbattery = 18;
-  if (sensorValue2 >= 2970) 
+   
+  if (sensorValue2 >= 2900) 
      Bbattery = 24;
-  else if (sensorValue2 >= 2850 && sensorValue2 < 2970) 
+  else if (sensorValue2 >= 2700 && sensorValue2 < 2800) 
      Bbattery = 23;
-  else if (sensorValue2 >= 2750 && sensorValue2 < 2850)
+  else if (sensorValue2 >= 2600 && sensorValue2 < 2700)
      Bbattery = 22;
-  else if (sensorValue2 >= 2695 && sensorValue2 < 2750) 
+  else if (sensorValue2 >= 2510 && sensorValue2 < 2600) 
     Bbattery = 21;
-  else if (sensorValue2 >= 2570 && sensorValue2 <= 2695) 
+  else if (sensorValue2 >= 2400 && sensorValue2 <= 2510) 
      Bbattery = 20;
-  else if (sensorValue2 >= 2400 && sensorValue2 <= 2570) 
+  else if (sensorValue2 >= 2300 && sensorValue2 <= 2400) 
      Bbattery = 19;
-  else if (sensorValue2 >= 2330 && sensorValue2 <= 2400)
+  else if (sensorValue2 >= 2200 && sensorValue2 <= 2300)
    Bbattery = 18;
+
+Serial.println("batter : ");
+Serial.println(Bbattery);
+  
   if(analogRead(MAINS_VOLTAGE_SENSOR_PIN)<80)
     isMainsVoltagePresent=true;
   else
