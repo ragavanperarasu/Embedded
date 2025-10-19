@@ -1,0 +1,43 @@
+#include <SPI.h>
+#include <MFRC522.h>
+
+#define SS_PIN 10
+#define RST_PIN 9
+MFRC522 rfid(SS_PIN, RST_PIN);
+
+// Known UIDs
+const byte uidRagavan[4]  = {0x4A, 0x4A, 0x8B, 0x3F};
+const byte uidPerarasu[4] = {0xD3, 0x1F, 0x16, 0xDA};
+
+// Last read UID
+byte lastUID[4];
+
+void setup() {
+  Serial.begin(9600);
+  SPI.begin();
+  rfid.PCD_Init();
+}
+
+void loop() {
+  if (!rfid.PICC_IsNewCardPresent() || !rfid.PICC_ReadCardSerial()) return;
+
+  // Ignore if same card as last
+  if (memcmp(rfid.uid.uidByte, lastUID, 4) == 0) {
+    rfid.PICC_HaltA();
+    rfid.PCD_StopCrypto1();
+    return;
+  }
+
+  // Copy current UID
+  memcpy(lastUID, rfid.uid.uidByte, 4);
+
+  // Check UID and print name
+  if (memcmp(rfid.uid.uidByte, uidRagavan, 4) == 0)
+    Serial.println("ragavan");
+  else if (memcmp(rfid.uid.uidByte, uidPerarasu, 4) == 0)
+    Serial.println("perarasu");
+
+  rfid.PICC_HaltA();
+  rfid.PCD_StopCrypto1();
+  delay(100);
+}
