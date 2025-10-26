@@ -1,0 +1,81 @@
+#include <SoftwareSerial.h>
+
+int RXPin = 13;
+int TXPin = 12;
+
+String lat, lon;
+
+SoftwareSerial gpsSerial(RXPin, TXPin);
+
+String gpsData = "";
+
+void setup() {
+  Serial.begin(9600);
+  gpsSerial.begin(9600);
+  Serial.println("Reading GPS...");
+}
+
+void loop() {
+  while (gpsSerial.available()) {
+    char c = gpsSerial.read();
+    if (c == '\n') {
+      // Process a complete line
+      if (gpsData.startsWith("$GPGGA") || gpsData.startsWith("$GPRMC")) {
+        parseNMEA(gpsData);
+      }
+      gpsData = ""; // clear for next line
+    } else {
+      gpsData += c;
+    }
+  }
+}
+
+void parseNMEA(String nmea) {
+  // Split the line by commas
+  int idx = 0;
+  String parts[20];
+  while (nmea.length() > 0 && idx < 20) {
+    int commaIndex = nmea.indexOf(',');
+    if (commaIndex == -1) {
+      parts[idx++] = nmea;
+      break;
+    } else {
+      parts[idx++] = nmea.substring(0, commaIndex);
+      nmea = nmea.substring(commaIndex + 1);
+    }
+  }
+
+  // GPGGA format: $GPGGA,time,lat,N/S,lon,E/W,...
+  // GPRMC format: $GPRMC,time,status,lat,N/S,lon,E/W,...
+  
+  if (parts[0].startsWith("$GPGGA") && parts[2] != "" && parts[4] != "") {
+    lat = convertToDecimal(parts[2], parts[3]);
+    lon = convertToDecimal(parts[4], parts[5]);
+  } else if (parts[0].startsWith("$GPRMC") && parts[3] != "" && parts[5] != "") {
+    lat = convertToDecimal(parts[3], parts[4]);
+    lon = convertToDecimal(parts[5], parts[6]);
+  }
+
+  if (lat != "" && lon != "") {
+    Serial.print("Latitude: ");
+    Serial.println(lat);
+    Serial.print("Longitude: ");
+    Serial.println(lon);
+    Serial.println("--------------------");
+  }
+}
+
+String convertToDecimal(String raw, String dir) {
+  if (raw.length() < 6) return "";
+
+  // Example: 1234.5678 -> 12 + (34.5678/60)
+  float rawVal = raw.toFloat();
+  int degrees = int(rawVal / 100);
+  float minutes = rawVal - (degrees * 100);
+  float decimal = degrees + (minutes / 60.0);
+
+  if (dir == "S" || dir == "W")
+    decimal = -decimal;
+
+  return String(decimal, 6); // 6 decimal precision
+}
