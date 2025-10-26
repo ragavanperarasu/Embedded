@@ -1,0 +1,86 @@
+#define SerialAT Serial1
+#define PWR_PIN 10
+#define UART_BAUD 9600
+
+unsigned long lastCheck = 0;
+const unsigned long interval = 5000; // Check every 5 seconds
+
+void modemPowerOn() {
+  Serial.println("Powering modem...");
+  pinMode(PWR_PIN, OUTPUT);
+  digitalWrite(PWR_PIN, LOW);
+  delay(1000);
+  digitalWrite(PWR_PIN, HIGH);
+  delay(3000);
+  Serial.println("Modem powered on");
+}
+
+void setup() {
+  Serial.begin(9600);
+  delay(2000);
+  
+  Serial.println("Starting modem test...");
+  
+  modemPowerOn();
+  
+  // Try different UART pins - GPIO12/13
+  SerialAT.setTX(12);
+  SerialAT.setRX(13);
+  Serial.println("Setting UART pins...");
+  
+  SerialAT.begin(UART_BAUD);
+  Serial.println("UART initialized successfully!");
+  
+  delay(1000);
+  
+  Serial.println("Type AT commands below (e.g., AT, ATI, AT+CSQ)");
+  Serial.println("---------------------------------------------");
+}
+
+void loop() {
+  // Forward data from modem → Serial Monitor
+  while (SerialAT.available()) {
+    Serial.write(SerialAT.read());
+  }
+  
+  // Forward data from Serial Monitor → modem
+  while (Serial.available()) {
+    SerialAT.write(Serial.read());
+  }
+
+  // Check signal strength every 'interval' milliseconds
+  if (millis() - lastCheck > interval) {
+    lastCheck = millis();
+
+    SerialAT.println("AT+CSQ");       // Request signal quality
+    delay(500);                        // Small delay for modem response
+
+    // Read response
+    String csqResponse = "";
+    while (SerialAT.available()) {
+      csqResponse += (char)SerialAT.read();
+    }
+
+    // Parse signal value
+    int rssiIndex = csqResponse.indexOf("+CSQ: ");
+    if (rssiIndex != -1) {
+      int commaIndex = csqResponse.indexOf(",", rssiIndex);
+      String rssiStr = csqResponse.substring(rssiIndex + 6, commaIndex);
+      int rssi = rssiStr.toInt();
+      
+      int signalPercent = 0;
+      if (rssi == 99) signalPercent = 0; // 99 means unknown
+      else signalPercent = map(rssi, 0, 31, 0, 100);
+      
+      Serial.print("Signal strength: ");
+      Serial.print(rssi);
+      Serial.print(" (");
+      Serial.print(signalPercent);
+      Serial.println("%)");
+    } else {
+      Serial.println("Failed to read signal strength");
+    }
+  }
+
+  delay(10);
+}
