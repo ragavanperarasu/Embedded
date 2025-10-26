@@ -6,9 +6,7 @@
 const char apn[] = "www";
 String api_url = "https://bharatrails.vercel.app/proins";
 #include <TinyGsmClient.h>
-#include <SPI.h>
 #include <ArduinoJson.h>
-#include <Ticker.h>
 #include <SoftwareSerial.h>
 
 TinyGsm modem(SerialAT);
@@ -24,8 +22,8 @@ StaticJsonDocument<200> payloadObj;
 #define PANEL_SENSOR_PIN 4
 #define MAINS_VOLTAGE_SENSOR_PIN 13
 #define LED_PIN 14
-int GPSRXPin = 33;
-int GPSTXPin = 32;
+int GPSRXPin = 15;
+int GPSTXPin = 18;
 SoftwareSerial gpsSerial(GPSRXPin,GPSTXPin);
 
 
@@ -37,7 +35,7 @@ const String TRAIN_NUMBER = "12674";
 const String COACH_NUMBER = "B4-203813";
 bool isMainsVoltagePresent = true;
 unsigned long lastHttpSendTime = 0;   // global variable
-const unsigned long sendInterval = 10000; // 5 minutes in ms
+const unsigned long sendInterval = 180000; // 5 minutes in ms
 
 String nmea = "";
 double currentLat = 0.0;
@@ -45,6 +43,7 @@ double currentLon = 0.0;
 
 void setup() {
   SerialMon.begin(9600);
+  gpsSerial.begin(9600);
   pinMode(MAINTENANCE_SWITCH_PIN, INPUT_PULLUP);
   pinMode(LED_PIN, OUTPUT);
   digitalWrite(LED_PIN, LOW);
@@ -76,22 +75,24 @@ void setup() {
     return;
   }
   digitalWrite(LED_PIN, HIGH);
-  SerialMon.println("Network connected successfully!");
-   delay(1000);
-     SerialMon.println("Setup completed successfully");
+  //SerialMon.println("Network connected successfully!");
+  delay(1000);
+  //SerialMon.println("Setup completed successfully");
 }
 void loop() {
    int signalQuality;
-  Serial.println("Start of main loop");
   signalQuality = modem.getSignalQuality();
-  Serial.print("Signal quality main loop first check: ");
   Serial.println(signalQuality);
 
-  while (gpsSerial.available()) {
+  while (gpsSerial.available() > 0) {
+    delay(10);
+
     char c = gpsSerial.read();
+    
     if (c == '\n') {
       // we finished one NMEA sentence
       if (nmea.startsWith("$GPRMC")) {
+        //Serial.println("Gps function call");
         parseGPRMC(nmea);
         break;
       }
@@ -105,7 +106,8 @@ void loop() {
   checkMaintenanceMode();
    unsigned long currentMillis = millis();
   if (currentMillis - lastHttpSendTime >= sendInterval) {
-    //sendHttpData();
+    Serial.println("1 server");
+    sendHttpData();
     lastHttpSendTime = currentMillis;
   }
   delay(5000);
@@ -172,27 +174,30 @@ void readHTTPResponse() {
 }
 void checkMaintenanceMode() {
   int currentState = digitalRead(MAINTENANCE_SWITCH_PIN);
+
+
+
   Serial.println("Maintenance mode call");
  int  sensorValue =analogRead(PANEL_SENSOR_PIN);
   int Pbattery = 0;
  int  sensorValue2 =analogRead(BACKUP_BATTERY_SENSOR_PIN);
   int Bbattery = 0;
-if (sensorValue >= 2900) 
+if (sensorValue >= 2970) 
      Pbattery = 24;
-  else if (sensorValue >= 2700 && sensorValue < 2800) 
+  else if (sensorValue >= 2850 && sensorValue < 2970) 
      Pbattery = 23;
-  else if (sensorValue >= 2600 && sensorValue < 2700) 
+  else if (sensorValue >= 2750 && sensorValue < 2850) 
      Pbattery = 22;
-  else if (sensorValue >= 2510 && sensorValue < 2600) 
+  else if (sensorValue >= 2695 && sensorValue < 2750) 
     Pbattery = 21;
-  else if (sensorValue >= 2540 && sensorValue < 2510) 
+  else if (sensorValue >= 2570 && sensorValue < 2695) 
      Pbattery = 20;
-  else if (sensorValue >= 2300 && sensorValue < 2400) 
+  else if (sensorValue >= 2400 && sensorValue < 2570) 
      Pbattery = 19;
-  else if (sensorValue >= 2200 && sensorValue < 2300) 
+  else if (sensorValue >= 2330 && sensorValue < 2400) 
    Pbattery = 18;
    
-  if (sensorValue2 >= 2900) 
+  if (sensorValue2 >= 2800) 
      Bbattery = 24;
   else if (sensorValue2 >= 2700 && sensorValue2 < 2800) 
      Bbattery = 23;
@@ -207,10 +212,8 @@ if (sensorValue >= 2900)
   else if (sensorValue2 >= 2200 && sensorValue2 <= 2300)
    Bbattery = 18;
 
-Serial.println("batter : ");
-Serial.println(Bbattery);
-  
-  if(analogRead(MAINS_VOLTAGE_SENSOR_PIN)<80)
+ // Serial.println(analogRead(MAINS_VOLTAGE_SENSOR_PIN));
+  if(analogRead(MAINS_VOLTAGE_SENSOR_PIN)<800)
     isMainsVoltagePresent=true;
   else
     isMainsVoltagePresent=false;
@@ -219,15 +222,35 @@ Serial.println(Bbattery);
       payloadObj["backbat"] = Bbattery;
       payloadObj["pripow"] = isMainsVoltagePresent;
       payloadObj["maintainance"] = currentState;
-      payloadObj["lat"] = "currentLat";
-      payloadObj["lng"] = "currentLon";
+      payloadObj["lat"] = currentLat;
+      payloadObj["lng"] = currentLon;
       payloadObj["sig"] = modem.getSignalQuality();
-      if(Pbattery<20)
-          analogWrite(RELAY_PIN, 200);
-      else
+
+      Serial.print("currentState : ");
+     Serial.println(currentState);
+     Serial.println("Bbattery : ");
+     Serial.println(Bbattery);
+
+     Serial.println("Pbattery : ");
+     Serial.println(Pbattery);
+
+     Serial.println("ssPbattery : ");
+     Serial.println(sensorValue);
+
+     Serial.println("ssBbattery : ");
+     Serial.println(sensorValue2);
+      if(Pbattery<20){
+         //sendHttpData();
+         analogWrite(RELAY_PIN, 200);
+      }
+      else{
         analogWrite(RELAY_PIN,0);
+      }
+        
 
 }
+
+
 
 void parseGPRMC(String s) {
   String f[12];
@@ -245,9 +268,13 @@ void parseGPRMC(String s) {
   if (f[2] != "A") return; // only update if fix is active
   if (f[3].length() < 4 || f[5].length() < 5) return;
 
+  Serial.println("function inside");
+  
+
   currentLat = nmeaToDecimalDegrees(f[3], true);
   if (f[4] == "S") currentLat = -currentLat;
 
+Serial.println(currentLat);
   currentLon = nmeaToDecimalDegrees(f[5], false);
   if (f[6] == "W") currentLon = -currentLon;
 }
