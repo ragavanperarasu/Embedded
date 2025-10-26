@@ -1,4 +1,4 @@
-#define ANALOG_PIN 26   // GPIO26 corresponds to ADC0 on Pico
+#define ANALOG_PIN 27   // GPIO26 corresponds to ADC0 on Pico
 
 int Bbattery = 0;
 int sensorValue2 = 0;
@@ -12,22 +12,45 @@ void loop() {
   sensorValue2 = analogRead(ANALOG_PIN); // Read analog value (0-65535)
   
   Serial.println(sensorValue2);
-  if (sensorValue2 >= 845) 
-     Bbattery = 25;
-  else if (sensorValue2 >= 830 && sensorValue2 < 845) 
-     Bbattery = 24;
-  else if (sensorValue2 >= 810 && sensorValue2 < 830)
-     Bbattery = 23;
-  else if (sensorValue2 >= 790 && sensorValue2 < 810) 
-    Bbattery = 22;
+  
+  if (sensorValue2 >= 840) 
+     Bbattery = 30;
+  else if (sensorValue2 >= 830 && sensorValue2 < 840) 
+     Bbattery = 29;
+  else if (sensorValue2 >= 820 && sensorValue2 < 830)
+     Bbattery = 28;
+  else if (sensorValue2 >= 800 && sensorValue2 < 820) 
+    Bbattery = 27;
+  else if (sensorValue2 >= 790 && sensorValue2 <= 800) 
+     Bbattery = 26;
   else if (sensorValue2 >= 770 && sensorValue2 <= 790) 
-     Bbattery = 21;
-  else if (sensorValue2 >= 750 && sensorValue2 <= 770) 
+     Bbattery = 25;
+  else if (sensorValue2 >= 750 && sensorValue2 <= 770)
+   Bbattery = 24;
+  else if (sensorValue2 >= 730 && sensorValue2 <= 750)
+   Bbattery = 23;
+  else if (sensorValue2 >= 710 && sensorValue2 <= 730)
+     Bbattery = 22;
+  else if (sensorValue2 >= 690 && sensorValue2 <= 710) 
+    Bbattery = 21;
+  else if (sensorValue2 >= 660 && sensorValue2 <= 690) 
      Bbattery = 20;
-  else if (sensorValue2 >= 720 && sensorValue2 <= 750)
-   Bbattery = 19;
-  else if (sensorValue2 >= 700 && sensorValue2 <= 720)
+  else if (sensorValue2 >= 640 && sensorValue2 <= 660) 
+     Bbattery = 19;
+  else if (sensorValue2 >= 610 && sensorValue2 <= 640)
    Bbattery = 18;
+  else if (sensorValue2 >= 580 && sensorValue2 <= 610)
+   Bbattery = 17;
+  else if (sensorValue2 >= 550 && sensorValue2 <= 580) 
+   Bbattery = 16;
+  else if (sensorValue2 >= 510 && sensorValue2 <= 550) 
+     Bbattery = 15;
+  else if (sensorValue2 >= 480 && sensorValue2 <= 510)
+   Bbattery = 14;
+  else if (sensorValue2 >= 445 && sensorValue2 <= 480)
+   Bbattery = 13;
+  else if (sensorValue2 >= 410 && sensorValue2 <= 445)
+   Bbattery = 12;
   else
     Bbattery = 0;
 
