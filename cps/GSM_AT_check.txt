@@ -1,0 +1,65 @@
+#define TINY_GSM_MODEM_SIM7600   // or A7670 if you’re using that
+#include <TinyGsmClient.h>
+#include <SoftwareSerial.h>
+
+// Define pins for GSM
+#define RX_PIN 5   // Arduino RX ← GSM TX
+#define TX_PIN 4   // Arduino TX → GSM RX
+
+SoftwareSerial SerialAT(RX_PIN, TX_PIN);
+TinyGsm modem(SerialAT);
+
+void setup() {
+  Serial.begin(115200);
+  SerialAT.begin(115200);
+  delay(3000);
+
+  Serial.println("🔹 TinyGSM Modem Tester 🔹");
+  Serial.println("--------------------------------");
+
+  // Initialize modem
+  Serial.println("⏳ Initializing modem...");
+  if (!modem.restart()) {
+    Serial.println("❌ Modem restart failed!");
+    return;
+  }
+
+  // Get modem info
+  String modemInfo = modem.getModemInfo();
+  Serial.println("✅ Modem Info: " + modemInfo);
+
+  // Wait for network
+  if (!modem.waitForNetwork(60000L)) {
+    Serial.println("❌ Network not found!");
+    return;
+  }
+
+  Serial.println("📶 Network found!");
+
+  // Print signal strength
+  int signal = modem.getSignalQuality();
+  Serial.println("📡 Signal Strength: " + String(signal));
+
+  Serial.println("--------------------------------");
+  Serial.println("Type AT commands below:");
+}
+
+void loop() {
+  // Forward Serial Monitor → GSM
+  while (Serial.available()) {
+    SerialAT.write(Serial.read());
+  }
+
+  // Forward GSM → Serial Monitor
+  while (SerialAT.available()) {
+    Serial.write(SerialAT.read());
+  }
+
+  // Optional: print signal every 10 seconds
+  static unsigned long lastCheck = 0;
+  if (millis() - lastCheck > 10000) {
+    int signal = modem.getSignalQuality();
+    Serial.println("📶 Signal Strength: " + String(signal));
+    lastCheck = millis();
+  }
+}
