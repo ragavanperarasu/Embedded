@@ -4,7 +4,7 @@
 #define SerialAT Serial1
 #define SerialMon Serial
 const char apn[] = "www";
-String api_url = "https://bharatrails.vercel.app/proins";
+String api_url = "YOUR_END_POINT";
 #include <TinyGsmClient.h>
 #include <ArduinoJson.h>
 #include <SoftwareSerial.h>
