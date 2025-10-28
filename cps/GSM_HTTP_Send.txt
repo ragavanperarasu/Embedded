@@ -1,0 +1,193 @@
+/*************************************************************************
+   PROJECT: Raspberry Pi Pico with SIMA7670C HTTP POST Example
+   AUTHOR: Adapted from Bharat Pi
+   CREATED DATE: 28/10/2025
+   BOARD: Raspberry Pi Pico
+   MODEM: SIMA7670C
+   FUNC: 4G HTTP POST request to a URL
+   SIMCARD: 4G sim cards from Airtel/Vodaphone/Jio/BSNL can be used.
+   
+   IMPORTANT: Configure the APN accordingly as per your Sim provider
+   CHANGES MADE:
+   1. Changed pins for Raspberry Pi Pico
+   2. Removed DTR pin and power sequence
+   3. Used SoftwareSerial for modem communication
+   4. Simplified initialization
+*************************************************************************/
+
+#define TINY_GSM_MODEM_SIM7600
+#define TINY_GSM_RX_BUFFER 1024
+
+// Define pins for Raspberry Pi Pico - CHANGED
+#define RX_PIN 5   // GPIO5 - Pico RX ← GSM TX
+#define TX_PIN 4   // GPIO4 - Pico TX → GSM RX
+
+#include <SoftwareSerial.h>
+SoftwareSerial SerialAT(RX_PIN, TX_PIN); // CHANGED: Using SoftwareSerial
+#define SerialMon Serial
+
+#define GSM_PIN "" // SIM card PIN if any
+
+// Set APN as per your sim card:
+const char apn[]  = "airtelgprs"; // "airtelgprs.com", "www", "jionet", "bsnlnet"
+const char gprsUser[] = "";
+const char gprsPass[] = "";
+
+// Your API endpoint URL
+String api_url = "YOUR_END_POINT";
+
+#include <TinyGsmClient.h>
+#include <ArduinoJson.h>
+
+StaticJsonDocument<200> payloadObj;
+TinyGsm modem(SerialAT);
+
+void readHTTPResponse() {
+  Serial.println("Reading HTTP response...");
+  
+  // Get HTTP status
+  modem.sendAT("+HTTPSTATUS?");
+  String response = "";
+  if (modem.waitResponse(5000L, response) == 1) {
+    Serial.print("HTTP Status: ");
+    Serial.println(response);
+  }
+
+  // Get HTTP response data
+  modem.sendAT("+HTTPREAD");
+  response = "";
+  if (modem.waitResponse(5000L, response) == 1) {
+    Serial.print("HTTP Response: ");
+    Serial.println(response);
+  }
+}
+
+void setup(){
+  SerialMon.begin(115200);
+  delay(5000);
+
+  Serial.println();
+  Serial.println("Raspberry Pi Pico with SIMA7670C HTTP POST Example");
+  Serial.println("Initializing Modem...");
+  
+  // CHANGED: Initialize SoftwareSerial for Pico (removed power sequence)
+  SerialAT.begin(115200);
+  delay(3000);
+
+  if (!modem.init()) {
+    Serial.println("Failed to initialize modem");
+    return;
+  }
+
+  // Unlock SIM card if needed
+  if (GSM_PIN && modem.getSimStatus() != 3) {
+    modem.simUnlock(GSM_PIN);
+  }
+
+  Serial.println("Connecting to network...");
+  
+  // CHANGED: Simplified network connection
+  if (!modem.waitForNetwork()) {
+    Serial.println("Failed to connect to network");
+    return;
+  }
+
+  Serial.println("Network connected successfully");
+  
+  // CHANGED: Connect to GPRS
+  Serial.println("Connecting to GPRS...");
+  if (!modem.gprsConnect(apn, gprsUser, gprsPass)) {
+    Serial.println("GPRS connection failed");
+    return;
+  }
+  Serial.println("GPRS connected");
+
+  // Prepare JSON payload
+  payloadObj["coachid"] = "b9-34567";
+  payloadObj["pribat"] = 1;
+  payloadObj["backbat"] = 20;
+  payloadObj["pripow"] = false;
+  payloadObj["maintainance"] = true;
+  payloadObj["lat"] = "8.99";
+  payloadObj["lng"] = "28.88";
+  payloadObj["sig"] = 20;
+  
+  String payload;
+  serializeJson(payloadObj, payload);
+
+  Serial.println("Making HTTP POST request...");
+  Serial.println("URL: " + api_url);
+  Serial.println("Payload: " + payload);
+  
+  // Initialize HTTP
+  modem.sendAT("+HTTPINIT");
+  if (modem.waitResponse(10000L) != 1) {
+    Serial.println("HTTP init failed");
+    return;
+  }
+  Serial.println("HTTP initialized");
+
+  // Set URL - CHANGED: Added quotes around URL
+  String urlCmd = "+HTTPPARA=\"URL\",\"" + api_url + "\"";
+  modem.sendAT(urlCmd);
+  if (modem.waitResponse(10000L) != 1) {
+    Serial.println("URL setting failed");
+    modem.sendAT("+HTTPTERM");
+    return;
+  }
+  Serial.println("URL set");
+
+  // Set content type to JSON
+  modem.sendAT("+HTTPPARA=\"CONTENT\",\"application/json\"");
+  if (modem.waitResponse(10000L) != 1) {
+    Serial.println("Content type setting failed");
+    modem.sendAT("+HTTPTERM");
+    return;
+  }
+  Serial.println("Content type set");
+
+  // Prepare to send data
+  modem.sendAT("+HTTPDATA=" + String(payload.length()) + ",10000");
+  if (modem.waitResponse(10000L, "DOWNLOAD") != 1) {
+    Serial.println("Data preparation failed");
+    modem.sendAT("+HTTPTERM");
+    return;
+  }
+  Serial.println("Ready to send data");
+
+  // Send payload
+  delay(1000); // Added delay before sending data
+  SerialAT.print(payload);
+  if (modem.waitResponse(10000L) != 1) {
+    Serial.println("Data sending failed");
+    modem.sendAT("+HTTPTERM");
+    return;
+  }
+  Serial.println("Data sent");
+
+  // Execute POST request
+  modem.sendAT("+HTTPACTION=1");
+  if (modem.waitResponse(10000L) != 1) {
+    Serial.println("POST action failed");
+  } else {
+    Serial.println("POST request sent successfully");
+    
+    // Wait for the response to be available
+    delay(5000);
+    
+    // Read and print the HTTP response
+    readHTTPResponse();
+  }
+
+  // Terminate HTTP
+  delay(2000);
+  modem.sendAT("+HTTPTERM");
+  modem.waitResponse(5000L);
+  
+  Serial.println("HTTP POST example completed");
+}
+
+void loop(){
+  // Empty - runs only once
+  delay(1000);
+}
