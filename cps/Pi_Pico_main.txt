@@ -1,0 +1,388 @@
+#define TINY_GSM_MODEM_SIM7600
+#define TINY_GSM_RX_BUFFER 1024
+
+#define RX_PIN 5   // GPIO5 - Pico RX ← GSM TX
+#define TX_PIN 4   // GPIO4 - Pico TX → GSM RX
+
+#define PBAT 26 // Primary Battery pin
+#define BBAT 27 // Backup Battery pin
+
+#define MAINTENANCE 22 // Maintanance switch pin
+
+#define MAINVOLT 28 // 110 volt detection (500 > variable => present 110 volt)
+#define RELEYSWITCH 20 // Relay
+
+#include <SoftwareSerial.h>
+#include <TinyGsmClient.h>
+#include <TinyGPS++.h>
+#include <ArduinoJson.h>
+
+SoftwareSerial SerialAT(RX_PIN, TX_PIN);
+#define SerialMon Serial
+
+#define GSM_PIN "" 
+
+//Global Variable
+int PBatValue = 0;
+int BBatValue = 0;
+
+bool MaintenanceValue = false;
+bool MainVolt = false;
+
+int RXPin = 13;  // for gps
+int TXPin = 12;
+
+int signalQuality;
+
+double lat = 0.0;
+double lon = 0.0;
+
+
+SoftwareSerial gpsSerial(RXPin, TXPin);
+TinyGPSPlus gps;
+
+
+
+// SIM APN Configuration
+const char apn[]  = "airtelgprs"; 
+const char gprsUser[] = "";
+const char gprsPass[] = "";
+
+// API URL
+String api_url = "https://bharatrails.vercel.app/proins";
+
+// JSON payload
+StaticJsonDocument<200> payloadObj;
+String payload;
+
+// GSM Modem
+TinyGsm modem(SerialAT);
+
+// ---------------- FUNCTION DECLARATIONS ----------------
+void initModem();
+bool connectToNetwork();
+bool connectToGPRS();
+void preparePayload();
+void sendHTTPDataToServer();
+void readHTTPResponse();
+bool setHTTPParameter(String cmd, String value);
+bool sendATCommand(String cmd, long timeout = 10000L);
+void voltageDetection();
+void handleMaintenanceSwitch();
+void handleMainVolt();
+void handleRelay();
+
+void readGPSData();
+void handleSignal();
+
+// -------------------------------------------------------
+
+void setup() {
+  SerialMon.begin(115200);
+  
+  delay(3000);
+
+  gpsSerial.begin(9600);
+
+  delay(1000);
+
+  pinMode(MAINTENANCE, INPUT_PULLUP);
+  pinMode(RELEYSWITCH, OUTPUT);
+  
+  Serial.println("************STARTING FDS MONITORING SYSTEM BY GCT***************");
+
+  initModem();
+  
+  if (!connectToNetwork()) return;
+  if (!connectToGPRS()) return;
+
+}
+
+void loop() {
+
+
+  readGPSData();
+  //handleSignal();
+ // voltageDetection();
+ // handleMaintenanceSwitch();
+ // handleMainVolt();
+ // handleRelay();
+  
+ // preparePayload();
+  //sendHTTPDataToServer();
+  
+  delay(1000);
+}
+
+// -------------------------------------------------------
+//               FUNCTION DEFINITIONS
+// -------------------------------------------------------
+
+void readGPSData() {
+ Serial.println("function call");
+    while (gpsSerial.available() > 0) {
+      delay(10);
+      Serial.println("looooooo");
+    if (gps.encode(gpsSerial.read())) {
+      if (gps.location.isValid()) {
+    Serial.print("Latitude: ");
+    Serial.println(gps.location.lat(), 6);
+    Serial.print("Longitude: ");
+    Serial.println(gps.location.lng(), 6);
+    Serial.print("Altitude: ");
+    Serial.println(gps.altitude.meters());
+    Serial.print("Satellites: ");
+    Serial.println(gps.satellites.value());
+    Serial.print("HDOP: ");
+    Serial.println(gps.hdop.value());
+    Serial.println("--------------------");
+  } else {
+    Serial.println("Location: Not available");
+  }
+    }
+  }
+
+  // If no data received for 5 seconds, show error
+  if (millis() > 5000 && gps.charsProcessed() < 10) {
+    Serial.println("No GPS data received");
+  }
+}
+
+
+void initModem() {
+  //Serial.println("Initializing Modem...");
+  SerialAT.begin(115200);
+  delay(3000);
+
+  if (!modem.init()) {
+    Serial.println("[ PROBLEM ] Failed to initialize modem");
+    while (1);
+  }
+
+  if (GSM_PIN && modem.getSimStatus() != 3) {
+    modem.simUnlock(GSM_PIN);
+  }
+
+  Serial.println("[ STATUS ] Modem initialized Success");
+}
+
+bool connectToNetwork() {
+  //Serial.println("Connecting to Network...");
+  if (!modem.waitForNetwork()) {
+    //Serial.println("[ PROBLEM ] GSM Network connection failed");
+    return false;
+  }
+  Serial.println("[ STATUS ] GSM Network connected");
+  return true;
+}
+
+bool connectToGPRS() {
+  //Serial.println("Connecting to GPRS...");
+  if (!modem.gprsConnect(apn, gprsUser, gprsPass)) {
+    Serial.println("[ PROBLEM ] GPRS connection failed");
+    return false;
+  }
+  Serial.println("[ STATUS ] GPRS connected");
+  return true;
+}
+
+void preparePayload() {
+  payloadObj["coachid"] = "B7-00000";
+  payloadObj["pribat"] = PBatValue;
+  payloadObj["backbat"] = BBatValue;
+  payloadObj["pripow"] = MainVolt;
+  payloadObj["maintainance"] = MaintenanceValue;
+  payloadObj["lat"] = lat;
+  payloadObj["lng"] = lon;
+  payloadObj["sig"] = signalQuality;
+  
+  serializeJson(payloadObj, payload);
+  Serial.print("📡[ STATUS ] ");
+  Serial.println(payload);
+}
+
+void sendHTTPDataToServer() {
+  Serial.println("[ STATUS ]📡 Making HTTP POST request...");
+
+  sendATCommand("+HTTPINIT");
+
+  if (!setHTTPParameter("URL", api_url)) return;
+  if (!setHTTPParameter("CONTENT", "application/json")) return;
+
+  modem.sendAT("+HTTPDATA=" + String(payload.length()) + ",10000");
+  if (modem.waitResponse(10000L, "DOWNLOAD") != 1) {
+    //Serial.println("❌ Data preparation failed");
+    modem.sendAT("+HTTPTERM");
+    return;
+  }
+
+  delay(1000);
+  SerialAT.print(payload);
+  modem.waitResponse(10000L);
+  //Serial.println("✅ Data sent");
+
+  modem.sendAT("+HTTPACTION=1");
+  if (modem.waitResponse(10000L) != 1) {
+    //Serial.println("❌ POST action failed");
+  } else {
+    Serial.println("[ STATUS ] POST request sent successfully");
+    delay(5000);
+    readHTTPResponse();
+  }
+
+  delay(2000);
+  modem.sendAT("+HTTPTERM");
+  modem.waitResponse(5000L);
+
+  //Serial.println("🌐 HTTP POST example completed");
+}
+
+void readHTTPResponse() {
+ // Serial.println("Reading HTTP response...");
+
+  modem.sendAT("+HTTPREAD");
+  String response = "";
+  if (modem.waitResponse(5000L, response) == 1) {
+   // Serial.print("📩 Server Response: ");
+    //Serial.println(response);
+  } else {
+    //Serial.println("❌ Failed to read response");
+  }
+}
+
+bool setHTTPParameter(String cmd, String value) {
+  String atCmd = "+HTTPPARA=\"" + cmd + "\",\"" + value + "\"";
+  modem.sendAT(atCmd);
+  if (modem.waitResponse(10000L) != 1) {
+   // Serial.println("❌ Failed to set " + cmd);
+    modem.sendAT("+HTTPTERM");
+    return false;
+  }
+  //Serial.println("✅ Set " + cmd + " successfully");
+  return true;
+}
+
+bool sendATCommand(String cmd, long timeout) {
+  modem.sendAT(cmd);
+  if (modem.waitResponse(timeout) != 1) {
+    //Serial.println("❌ AT command failed: " + cmd);
+    return false;
+  }
+  return true;
+}
+
+void voltageDetection(){
+
+  int pbatan = analogRead(PBAT);
+  int bbatan = analogRead(BBAT);
+  
+  
+  if (pbatan >= 840) 
+     PBatValue = 30;
+  else if (pbatan >= 830 && pbatan < 840) 
+     PBatValue = 29;
+  else if (pbatan >= 820 && pbatan < 830)
+     PBatValue = 28;
+  else if (pbatan >= 800 && pbatan < 820) 
+    PBatValue = 27;
+  else if (pbatan >= 790 && pbatan <= 800) 
+     PBatValue = 26;
+  else if (pbatan >= 770 && pbatan <= 790) 
+     PBatValue = 25;
+  else if (pbatan >= 750 && pbatan <= 770)
+   PBatValue = 24;
+  else if (pbatan >= 730 && pbatan <= 750)
+   PBatValue = 23;
+  else if (pbatan >= 710 && pbatan <= 730)
+     PBatValue = 22;
+  else if (pbatan >= 690 && pbatan <= 710) 
+    PBatValue = 21;
+  else if (pbatan >= 660 && pbatan <= 690) 
+     PBatValue = 20;
+  else if (pbatan >= 640 && pbatan <= 660) 
+     PBatValue = 19;
+  else if (pbatan >= 610 && pbatan <= 640)
+   PBatValue = 18;
+  else if (pbatan >= 580 && pbatan <= 610)
+   PBatValue = 17;
+  else if (pbatan >= 550 && pbatan <= 580) 
+   PBatValue = 16;
+  else if (pbatan >= 510 && pbatan <= 550) 
+     PBatValue = 15;
+  else if (pbatan >= 480 && pbatan <= 510)
+   PBatValue = 14;
+  else if (pbatan >= 445 && pbatan <= 480)
+   PBatValue = 13;
+  else if (pbatan >= 410 && pbatan <= 445)
+   PBatValue = 12;
+  else
+    PBatValue = 0;
+
+  if (bbatan >= 840) 
+     BBatValue = 30;
+  else if (bbatan >= 830 && bbatan < 840) 
+     BBatValue = 29;
+  else if (bbatan >= 820 && bbatan < 830)
+     BBatValue = 28;
+  else if (bbatan >= 800 && bbatan < 820) 
+    BBatValue = 27;
+  else if (bbatan >= 790 && bbatan <= 800) 
+     BBatValue = 26;
+  else if (bbatan >= 770 && bbatan <= 790) 
+     BBatValue = 25;
+  else if (bbatan >= 750 && bbatan <= 770)
+   BBatValue = 24;
+  else if (bbatan >= 730 && bbatan <= 750)
+   BBatValue = 23;
+  else if (bbatan >= 710 && bbatan <= 730)
+     BBatValue = 22;
+  else if (bbatan >= 690 && bbatan <= 710) 
+    BBatValue = 21;
+  else if (bbatan >= 660 && bbatan <= 690) 
+     BBatValue = 20;
+  else if (bbatan >= 640 && bbatan <= 660) 
+     BBatValue = 19;
+  else if (bbatan >= 610 && bbatan <= 640)
+   BBatValue = 18;
+  else if (bbatan >= 580 && bbatan <= 610)
+   BBatValue = 17;
+  else if (bbatan >= 550 && bbatan <= 580) 
+   PBatValue = 16;
+  else if (bbatan >= 510 && bbatan <= 550) 
+     BBatValue = 15;
+  else if (bbatan >= 480 && bbatan <= 510)
+   BBatValue = 14;
+  else if (bbatan >= 445 && bbatan <= 480)
+   BBatValue = 13;
+  else if (bbatan >= 410 && bbatan <= 445)
+   BBatValue = 12;
+  else
+    BBatValue = 0;
+
+}
+
+void handleMaintenanceSwitch(){
+  MaintenanceValue = digitalRead(MAINTENANCE);
+}
+
+void handleMainVolt(){
+  int MainVoltAna = analogRead(MAINVOLT);
+  if(MainVoltAna < 500)
+    MainVolt = true;
+  else
+    MainVolt = false;
+}
+
+void handleRelay(){
+  if(PBatValue < 22)
+    digitalWrite(RELEYSWITCH, HIGH);
+  else
+    digitalWrite(RELEYSWITCH, LOW);
+}
+
+
+
+
+void handleSignal(){
+  signalQuality = modem.getSignalQuality();  
+}
