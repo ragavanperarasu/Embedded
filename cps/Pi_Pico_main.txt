@@ -37,6 +37,8 @@ int signalQuality;
 double latGPS = 0.0;
 double lonGPS = 0.0;
 
+unsigned long lastSendTime = 0;
+
 
 SoftwareSerial gpsSerial(RXPin, TXPin);
 TinyGPSPlus gps;
@@ -58,7 +60,6 @@ String payload;
 // GSM Modem
 TinyGsm modem(SerialAT);
 
-// ---------------- FUNCTION DECLARATIONS ----------------
 void initModem();
 bool connectToNetwork();
 bool connectToGPRS();
@@ -75,8 +76,6 @@ void displayInfo();
 void readGPSData();
 void handleSignal();
 
-// -------------------------------------------------------
-
 void setup() {
   SerialMon.begin(115200);
   
@@ -91,15 +90,14 @@ void setup() {
   
   Serial.println("************STARTING FDS MONITORING SYSTEM BY GCT***************");
 
-  //initModem();
+  initModem();
   
- // if (!connectToNetwork()) return;
-  //if (!connectToGPRS()) return;
+  if (!connectToNetwork()) return;
+  if (!connectToGPRS()) return;
 
 }
 
 void loop() {
-  // Read GPS for 100ms, then do other tasks
   unsigned long gpsStart = millis();
   while (millis() - gpsStart < 500) {
     while (gpsSerial.available() > 0) {
@@ -109,7 +107,6 @@ void loop() {
     }
   }
   
-  // Then do other tasks
   handleSignal();
   voltageDetection();
   handleMaintenanceSwitch();
@@ -117,10 +114,12 @@ void loop() {
   handleRelay();
   preparePayload();
   //sendHTTPDataToServer();
+
+  if (millis() - lastSendTime >= 60000) { // 60000 ms = 1 minute
+    sendHTTPDataToServer();
+    lastSendTime = millis(); // reset timer
+  }
 }
-// -------------------------------------------------------
-//               FUNCTION DEFINITIONS
-// -------------------------------------------------------
 
 void readGPSData() {
  while (gpsSerial.available() > 0) {
@@ -128,8 +127,6 @@ void readGPSData() {
       displayInfo();
     }
   }
-
-  // If no data received for 5 seconds, show error
   if (millis() > 5000 && gps.charsProcessed() < 10) {
     Serial.println("No GPS data received");
   }
@@ -139,17 +136,6 @@ void displayInfo() {
   if (gps.location.isValid()) {
     latGPS = gps.location.lat();
     lonGPS = gps.location.lng();
- //   Serial.print("Latitude: ");
-  //  Serial.println(gps.location.lat(), 6);
- //   Serial.print("Longitude: ");
-  //  Serial.println(gps.location.lng(), 6);
-   // Serial.print("Altitude: ");
-   // Serial.println(gps.altitude.meters());
-  //  Serial.print("Satellites: ");
-  //  Serial.println(gps.satellites.value());
-  //  Serial.print("HDOP: ");
-  //  Serial.println(gps.hdop.value());
-  //  Serial.println("--------------------");
   } else {
     Serial.println("[ WARN ] Location Not available");
   }
@@ -174,9 +160,8 @@ void initModem() {
 }
 
 bool connectToNetwork() {
-  //Serial.println("Connecting to Network...");
   if (!modem.waitForNetwork()) {
-    //Serial.println("[ PROBLEM ] GSM Network connection failed");
+    Serial.println("[ PROBLEM ] GSM Network connection failed");
     return false;
   }
   Serial.println("[ STATUS ] GSM Network connected");
@@ -386,9 +371,6 @@ void handleRelay(){
   else
     digitalWrite(RELEYSWITCH, LOW);
 }
-
-
-
 
 void handleSignal(){
   signalQuality = modem.getSignalQuality();  
